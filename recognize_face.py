@@ -2,7 +2,6 @@ import cv2
 import face_recognition
 import pickle
 import numpy as np
-import dlib  # For type checking
 
 # Load known face encodings from the pickle file.
 with open("known_faces.pickle", "rb") as f:
@@ -22,6 +21,16 @@ def face_confidence(face_distance, threshold=0.6):
         return 0.0
     return (1.0 - face_distance / threshold) * 100
 
+# Detection parameters
+BRIGHTNESS_THRESHOLD = 75   # mean gray level below which eyes are considered dark
+CASCADE_NEIGHBORS = 4       # tuning for glasses_cascade
+CASCADE_MIN_SIZE = (40, 40) # minimum size for sunglasses detection
+
+# Load sunglasses Haar cascade
+glasses_cascade = cv2.CascadeClassifier(
+    cv2.data.haarcascades + 'haarcascade_eye_tree_eyeglasses.xml'
+)
+
 # Open the webcam.
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
@@ -31,65 +40,73 @@ if not cap.isOpened():
 while True:
     ret, frame = cap.read()
     if not ret:
-        print("Error reading frame.")
         break
 
-    # Convert frame from BGR to RGB.
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # Detect faces
+    raw_locs = face_recognition.face_locations(rgb_frame, model='hog')
+    # Normalize locations
+    face_locations = []
+    for loc in raw_locs:
+        if isinstance(loc, (tuple, list)):
+            face_locations.append(tuple(loc))
+        elif hasattr(loc, 'rect'):
+            r = loc.rect
+            face_locations.append((r.top(), r.right(), r.bottom(), r.left()))
 
-    # Explicitly use the "hog" model.
-    raw_face_locations = face_recognition.face_locations(rgb_frame, model="hog")
-
-    # Convert each face location to a tuple (top, right, bottom, left) 
-    converted_face_locations = []
-    for loc in raw_face_locations:
-        # If it's already a tuple/list of length 4, use it.
-        if isinstance(loc, (tuple, list)) and len(loc) == 4:
-            converted_face_locations.append(tuple(loc))
-        # If it has top/right/bottom/left methods, use those.
-        elif hasattr(loc, "top") and hasattr(loc, "right") and hasattr(loc, "bottom") and hasattr(loc, "left"):
-            try:
-                converted_face_locations.append((loc.top(), loc.right(), loc.bottom(), loc.left()))
-            except Exception as e:
-                print("Error converting using methods:", e)
-        # Otherwise, if it has a rect attribute, use that.
-        elif hasattr(loc, "rect"):
-            try:
-                converted_face_locations.append((loc.rect.top(), loc.rect.right(), loc.rect.bottom(), loc.rect.left()))
-            except Exception as e:
-                print("Error converting using rect attribute:", e)
-        else:
-            print("Unrecognized face location format:", loc)
-    face_locations = converted_face_locations
-
-
-    # Compute face encodings with jittering disabled
+    # Compute encodings
     try:
-        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations, num_jitters=0)
-    except Exception as e:
-        print("Error computing face encodings:", e)
+        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+    except Exception:
         continue
 
-    # Loop over each detected face
-    for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-        distances = face_recognition.face_distance(known_encodings, face_encoding)
-        if len(distances) > 0:
-            best_match_index = np.argmin(distances)
-            best_distance = distances[best_match_index]
-            name = known_names[best_match_index] if best_distance < 0.6 else "Unknown"
-            confidence = face_confidence(best_distance)
-        else:
-            name = "Unknown"
-            confidence = 0.0
+    # Get landmarks for eyes
+    landmarks_list = face_recognition.face_landmarks(rgb_frame, face_locations)
 
-        # Draw a rectangle and label around the face
-        cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
-        label = f"{name}: {confidence:.2f}%"
-        cv2.putText(frame, label, (left, top - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    for (top, right, bottom, left), face_encoding, landmarks in zip(face_locations, face_encodings, landmarks_list):
+        # Recognition
+        name = 'Unknown'; confidence = 0.0
+        if known_encodings:
+            dists = face_recognition.face_distance(known_encodings, face_encoding)
+            idx = np.argmin(dists)
+            if dists[idx] < 0.6:
+                name = known_names[idx]
+                confidence = face_confidence(dists[idx])
 
-    cv2.imshow("Real-time Face Recognition", frame)
-    if cv2.waitKey(1) & 0xFF == ord("q"):
+        # Eye region
+        eye_pts = landmarks.get('left_eye', []) + landmarks.get('right_eye', [])
+        wearing_sunglasses = False
+        if eye_pts:
+            xs, ys = zip(*eye_pts)
+            x1, x2 = max(min(xs) - 10, 0), min(max(xs) + 10, frame.shape[1])
+            y1, y2 = max(min(ys) - 10, 0), min(max(ys) + 10, frame.shape[0])
+            eye_roi = frame[y1:y2, x1:x2]
+            if eye_roi.size:
+                gray = cv2.cvtColor(eye_roi, cv2.COLOR_BGR2GRAY)
+                mean_brightness = np.mean(gray)
+                # cascade detection
+                glasses = glasses_cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=CASCADE_NEIGHBORS,
+                    minSize=CASCADE_MIN_SIZE
+                )
+                # combine: glasses detected OR very low brightness
+                if len(glasses) > 0 or mean_brightness < BRIGHTNESS_THRESHOLD:
+                    wearing_sunglasses = True
+
+        # Draw
+        cv2.rectangle(frame, (left, top), (right, bottom), (0,255,0), 2)
+        cv2.putText(frame, f"{name}: {confidence:.0f}%", (left, top-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 2)
+
+        if wearing_sunglasses:
+            msg = 'Please take off your sunglasses'
+            (w,h), _ = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+            cv2.rectangle(frame, (left, bottom+5), (left+w, bottom+5+h), (0,0,255), cv2.FILLED)
+            cv2.putText(frame, msg, (left, bottom+5+h), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+
+    cv2.imshow('Real-time Face Recognition', frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
 cap.release()

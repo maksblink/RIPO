@@ -4,12 +4,21 @@ import os
 import pickle
 import numpy as np
 
+# Select camera index
+camera_index = input("Enter camera index (default 0): ").strip()
+if camera_index == '':
+    camera_index = 0
+else:
+    try:
+        camera_index = int(camera_index)
+    except ValueError:
+        print("Invalid input. Using default camera 0.")
+        camera_index = 0
 
 person_name = input("Enter the person's name: ").strip()
 if not person_name:
     print("No name provided.")
     exit()
-
 
 pickle_file = "known_faces.pickle"
 if os.path.exists(pickle_file):
@@ -18,22 +27,21 @@ if os.path.exists(pickle_file):
 else:
     known_faces = {}
 
-# Create or update the entry for this person
 if person_name not in known_faces:
     known_faces[person_name] = []
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(camera_index)
 if not cap.isOpened():
-    print("Error: Cannot open camera.")
+    print(f"Error: Cannot open camera {camera_index}.")
     exit()
 
-# Folder for extracted face images
 output_folder = "extracted_faces"
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
 
 frame_count = 0
-sampling_interval = 10  # Process every x frame
+sampling_interval = 10
+min_face_size = 100  # minimum face width/height in pixels
 
 while True:
     ret, frame = cap.read()
@@ -43,26 +51,35 @@ while True:
 
     frame_count += 1
 
-    # Skip frames
     if frame_count % sampling_interval != 0:
         cv2.imshow("Preview - Extracted Faces", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
         continue
 
-    # Convert frame to RGB for face_recognition
     rgb_frame = frame[:, :, ::-1]
     face_locations = face_recognition.face_locations(rgb_frame)
 
     for i, (top, right, bottom, left) in enumerate(face_locations):
-        # Save the face image from the frame in BGR
+        face_width = right - left
+        face_height = bottom - top
+
+        if face_width < min_face_size or face_height < min_face_size:
+            print(f"Skipped small face at frame {frame_count}, index {i}")
+            continue
+
         face_image = frame[top:bottom, left:right]
         filename = os.path.join(output_folder, f"{person_name}_face_{frame_count}_{i}.jpg")
         cv2.imwrite(filename, face_image)
 
-        # Compute the face encoding from the cropped RGB face.
         cropped_rgb = np.ascontiguousarray(rgb_frame[top:bottom, left:right])
-        #face_encodings uses shape_predictor_68_face_landmarks
+
+        # Check for landmarks to filter bad faces
+        landmarks = face_recognition.face_landmarks(cropped_rgb)
+        if not landmarks:
+            print(f"Skipped face with no landmarks at frame {frame_count}, index {i}")
+            continue
+
         encoding = face_recognition.face_encodings(cropped_rgb)
         if encoding:
             known_faces[person_name].append(encoding[0])
@@ -76,7 +93,6 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-# Save the updated known_faces dictionary to the pickle file
 with open(pickle_file, "wb") as f:
     pickle.dump(known_faces, f)
 

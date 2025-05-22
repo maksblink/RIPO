@@ -5,6 +5,8 @@ import cv2
 import face_recognition
 import numpy as np
 from PIL import Image, ImageDraw
+import csv
+from datetime import datetime
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton,
@@ -37,6 +39,16 @@ class RecognitionWindow(QWidget):
 
         form.addRow("Camera:", self.camera_box)
         input_group.setLayout(form)
+
+        # --- CSV logging setup ---
+        self.csv_path = "recognitions.csv"
+        # check if file exists to know whether to write header
+        write_header = not os.path.exists(self.csv_path)
+        self.csv_file = open(self.csv_path, 'a', newline='', encoding='utf-8')
+        self.csv_writer = csv.writer(self.csv_file)
+        if write_header:
+            self.csv_writer.writerow(["timestamp", "name", "confidence_pct", "sunglasses"])
+
 
         # Control buttons
         btn_layout = QHBoxLayout()
@@ -121,6 +133,8 @@ class RecognitionWindow(QWidget):
         self.stop_btn.setEnabled(False)
         self.camera_box.setEnabled(True)
         self.status_label.setText("Recognition stopped.")
+        if hasattr(self, 'csv_file') and not self.csv_file.closed:
+            self.csv_file.close()
 
     def _process_frame(self):
         ret, frame = self.cap.read()
@@ -208,6 +222,17 @@ class RecognitionWindow(QWidget):
                 (w,h),_ = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
                 cv2.rectangle(frame, (left, bottom+5), (left+w, bottom+5+h), (0,0,255), cv2.FILLED)
                 cv2.putText(frame, msg, (left, bottom+5+h), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+            # --- log to CSV ---
+            timestamp = datetime.now().isoformat()
+            self.csv_writer.writerow([
+                timestamp,
+                name,
+                f"{confidence:.1f}",
+                1 if wearing_sunglasses else 0
+            ])
+            # ensure it's written out immediately
+            self.csv_file.flush()
+
 
         # Display frame in Qt label
         rgb_disp = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

@@ -130,7 +130,19 @@ class RecognitionWindow(QWidget):
         # Upscale frame
         frame = cv2.resize(frame, (0,0), fx=1.25, fy=1.25)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        inv = 1/0.8  
+        table = np.array([((i/255.0)**inv)*255 for i in range(256)]).astype('uint8')
+        frame = cv2.LUT(frame, table)
 
+        # # —— CLAHE preprocessing—— 
+        # lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        # l, a, b = cv2.split(lab)
+        # clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        # cl = clahe.apply(l)
+        # lab_cl = cv2.merge((cl, a, b))
+        # frame = cv2.cvtColor(lab_cl, cv2.COLOR_LAB2BGR)
+        # # —— end CLAHE —— 
         # Face locations
         locs = face_recognition.face_locations(rgb, model='hog')
         try:
@@ -166,10 +178,10 @@ class RecognitionWindow(QWidget):
                 eye_local = [(x-left, y-top) for x,y in eye_pts]
                 draw.polygon(eye_local, fill=(0,0,0))
                 enc_list = face_recognition.face_encodings(np.array(pil_img))
-                threshold = 0.75
+                threshold = 0.85
             else:
                 enc_list = [encoding]
-                threshold = 0.6
+                threshold = 0.8
             if enc_list:
                 enc = enc_list[0]
                 name = 'Unknown'

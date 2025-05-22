@@ -139,7 +139,18 @@ class FaceRememberingApp(QWidget):
         if not ret:
             self.status_label.setText("Failed to grab frame.")
             return
+        inv = 1/0.8  
+        table = np.array([((i/255.0)**inv)*255 for i in range(256)]).astype('uint8')
+        frame = cv2.LUT(frame, table)
 
+        # # —— CLAHE preprocessing, exactly as in RecognitionWindow —— 
+        # lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        # l, a, b = cv2.split(lab)
+        # clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        # cl = clahe.apply(l)
+        # lab_cl = cv2.merge((cl, a, b))
+        # frame = cv2.cvtColor(lab_cl, cv2.COLOR_LAB2BGR)
+        # # —— end CLAHE —— 
         self.frame_count += 1
         display = frame.copy()
 

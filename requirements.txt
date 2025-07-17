@@ -1,5 +1,9 @@
-face_recognition
-opencv-python
+face_recognition==1.4.0
+face_recognition_models==0.3.0
+dlib==20.0.0
 numpy
+opencv-python
 Pillow
 PyQt5
+setuptools
+click

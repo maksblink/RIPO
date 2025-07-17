@@ -1,3 +1,4 @@
+import dlib
 import sys
 import os
 import pickle
@@ -163,7 +164,20 @@ class RecognitionWindow(QWidget):
             encodings = face_recognition.face_encodings(rgb, locs)
         except Exception:
             return
-        landmarks_list = face_recognition.face_landmarks(rgb, locs)
+
+        if not hasattr(self, 'predictor'):
+            self.predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
+
+        landmarks_list = []
+        for (top, right, bottom, left) in locs:
+            rect = dlib.rectangle(left, top, right, bottom)
+            shape = self.predictor(rgb, rect)
+            landmarks = {
+                'left_eye': [(shape.part(i).x, shape.part(i).y) for i in range(36, 42)],
+                'right_eye': [(shape.part(i).x, shape.part(i).y) for i in range(42, 48)],
+                # dodaj inne elementy jeśli potrzebujesz np. 'nose_tip', 'mouth', itp.
+            }
+            landmarks_list.append(landmarks)
 
         for (top, right, bottom, left), encoding, landmarks in zip(locs, encodings, landmarks_list):
             wearing_sunglasses = False

@@ -24,3 +24,8 @@ Thumbs.db
 
 # Pliki testowe (opcjonalnie)
 *.test.py
+
+# Dane
+extracted_faces/
+known_faces.pickle
+recognitions.csv
